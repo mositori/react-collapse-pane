@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { MutableRefObject, useLayoutEffect, useState } from 'react';
 import { Pane } from '../Pane';
 import { Resizer } from '../Resizer';
 import { useSplitPaneResize } from './hooks/useSplitPaneResize';
@@ -59,77 +59,87 @@ export interface SplitPaneProps {
   children: React.ReactChild[];
 }
 
-export const SplitPane = ({ className = '', ...props }: SplitPaneProps) => {
-  const collapsedSizes = useCollapsedSizes(props);
-  const isLtr = useIsLtr(props);
+export const SplitPane = React.forwardRef(
+  (
+    { className = '', ...props }: SplitPaneProps,
+    ref: MutableRefObject<(index: number) => void>
+  ) => {
+    const collapsedSizes = useCollapsedSizes(props);
+    const isLtr = useIsLtr(props);
 
-  const [collapsedIndices, setCollapsed] = useState<number[]>(
-    convertCollapseSizesToIndices(collapsedSizes)
-  );
-
-  const { childPanes, handleDragStart, resizeState } = useSplitPaneResize({
-    ...props,
-    isLtr,
-    collapsedIndices,
-    collapsedSizes,
-  });
-
-  const splitPaneClass = useMergeClasses(['SplitPane', props.split, className]);
-  const resizingClass = useMergeClasses(['resizing', className]);
-
-  const toggleCollapse = useToggleCollapse({ setCollapsed, collapsedIndices });
-  const getIsPaneCollapsed = useGetIsPaneCollapsed({ collapsedIndices });
-  const isCollapseReversed = useIsCollapseReversed(props.collapseOptions);
-
-  if (childPanes.length <= 1) {
-    console.error(
-      '[react-collapse-pane] - You must have more than one non-null child inside the SplitPane component.  Even though SplitPane does not crash, you should resolve this error.'
+    const [collapsedIndices, setCollapsed] = useState<number[]>(
+      convertCollapseSizesToIndices(collapsedSizes)
     );
-    return <>{props.children}</>;
-  }
 
-  // stacks the children and places a resizer in between each of them. Each resizer has the same index as the pane that it controls.
-  const entries = childPanes.map((pane, paneIndex) => {
-    const resizerPaneIndex = isCollapseReversed ? paneIndex : paneIndex - 1;
-    return (
-      <React.Fragment key={paneIndex}>
-        {paneIndex - 1 >= 0 ? (
-          <Resizer
-            key={`resizer.${resizerPaneIndex}`}
-            isCollapsed={getIsPaneCollapsed(resizerPaneIndex)}
+    const { childPanes, handleDragStart, resizeState } = useSplitPaneResize({
+      ...props,
+      isLtr,
+      collapsedIndices,
+      collapsedSizes,
+    });
+
+    const splitPaneClass = useMergeClasses(['SplitPane', props.split, className]);
+    const resizingClass = useMergeClasses(['resizing', className]);
+
+    const toggleCollapse = useToggleCollapse({ setCollapsed, collapsedIndices });
+    const getIsPaneCollapsed = useGetIsPaneCollapsed({ collapsedIndices });
+    const isCollapseReversed = useIsCollapseReversed(props.collapseOptions);
+
+    if (childPanes.length <= 1) {
+      console.error(
+        '[react-collapse-pane] - You must have more than one non-null child inside the SplitPane component.  Even though SplitPane does not crash, you should resolve this error.'
+      );
+      return <>{props.children}</>;
+    }
+
+    // stacks the children and places a resizer in between each of them. Each resizer has the same index as the pane that it controls.
+    const entries = childPanes.map((pane, paneIndex) => {
+      const resizerPaneIndex = isCollapseReversed ? paneIndex : paneIndex - 1;
+      return (
+        <React.Fragment key={paneIndex}>
+          {paneIndex - 1 >= 0 ? (
+            <Resizer
+              key={`resizer.${resizerPaneIndex}`}
+              isCollapsed={getIsPaneCollapsed(resizerPaneIndex)}
+              split={props.split}
+              isLtr={isLtr}
+              className={resizeState?.index === resizerPaneIndex ? resizingClass : className}
+              paneIndex={resizerPaneIndex}
+              resizerOptions={props.resizerOptions}
+              collapseOptions={props.collapseOptions}
+              onDragStarted={handleDragStart}
+              onCollapseToggle={toggleCollapse}
+            />
+          ) : null}
+          <Pane
+            key={`pane.${paneIndex}`}
+            forwardRef={pane.ref}
+            size={pane.size}
+            isCollapsed={getIsPaneCollapsed(paneIndex)}
+            collapsedIndices={collapsedIndices}
             split={props.split}
-            isLtr={isLtr}
-            className={resizeState?.index === resizerPaneIndex ? resizingClass : className}
-            paneIndex={resizerPaneIndex}
-            resizerOptions={props.resizerOptions}
-            collapseOptions={props.collapseOptions}
-            onDragStarted={handleDragStart}
-            onCollapseToggle={toggleCollapse}
-          />
-        ) : null}
-        <Pane
-          key={`pane.${paneIndex}`}
-          forwardRef={pane.ref}
-          size={pane.size}
-          isCollapsed={getIsPaneCollapsed(paneIndex)}
-          collapsedIndices={collapsedIndices}
-          split={props.split}
-          minSize={getMinSize(paneIndex, props.minSizes)}
-          className={className}
-          transitionTimeout={props.collapseOptions?.collapseTransitionTimeout}
-          collapseOverlayCss={props.collapseOptions?.overlayCss}
-        >
-          {pane.node}
-        </Pane>
-      </React.Fragment>
-    );
-  });
+            minSize={getMinSize(paneIndex, props.minSizes)}
+            className={className}
+            transitionTimeout={props.collapseOptions?.collapseTransitionTimeout}
+            collapseOverlayCss={props.collapseOptions?.overlayCss}
+          >
+            {pane.node}
+          </Pane>
+        </React.Fragment>
+      );
+    });
 
-  return (
-    <Wrapper key="splitpanewrapper" className={splitPaneClass} split={props.split}>
-      {entries}
-    </Wrapper>
-  );
-};
+    useLayoutEffect(() => {
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      ref.current = toggleCollapse;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [toggleCollapse]);
+
+    return (
+      <Wrapper key="splitpanewrapper" className={splitPaneClass} split={props.split}>
+        {entries}
+      </Wrapper>
+    );
+  }
+);
 SplitPane.displayName = 'SplitPane';
-SplitPane.key = 'SplitPane';
